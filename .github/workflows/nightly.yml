@@ -97,6 +97,45 @@ jobs:
           git config user.email "actions@github.com"
           git config user.name "nightly-builder"
 
+      - name: Apply extra PRs
+        id: prs
+        working-directory: src
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: ${{ needs.prepare.outputs.upstream_repo }}
+          PR_LIST: ${{ needs.prepare.outputs.pr_list }}
+          ROLE: ${{ matrix.role }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../pr-status
+          STATUS="../pr-status/${ROLE}.json"
+          echo '[]' > "$STATUS"
+          echo "$PR_LIST" | jq -r '.[]' | while read -r n; do
+            [ -z "$n" ] && continue
+            TITLE=$(gh pr view "$n" --repo "$UPSTREAM" --json title --jq '.title' 2>/dev/null || true)
+            if [ -z "$TITLE" ]; then
+              jq --argjson n "$n" --arg s "fetch_fail" --arg t "" \
+                 '. += [{"number":$n,"title":$t,"status":$s}]' "$STATUS" > "$STATUS.tmp"
+              mv "$STATUS.tmp" "$STATUS"
+              echo "PR #$n: fetch failed"
+              continue
+            fi
+            if git fetch origin "pull/${n}/head:pr-${n}" >/dev/null 2>&1 \
+               && git merge --no-edit "pr-${n}" >/dev/null 2>&1; then
+              jq --argjson n "$n" --arg s "merged" --arg t "$TITLE" \
+                 '. += [{"number":$n,"title":$t,"status":$s}]' "$STATUS" > "$STATUS.tmp"
+              mv "$STATUS.tmp" "$STATUS"
+              echo "PR #$n merged: $TITLE"
+            else
+              git merge --abort >/dev/null 2>&1 || true
+              jq --argjson n "$n" --arg s "conflict" --arg t "$TITLE" \
+                 '. += [{"number":$n,"title":$t,"status":$s}]' "$STATUS" > "$STATUS.tmp"
+              mv "$STATUS.tmp" "$STATUS"
+              echo "PR #$n conflict: $TITLE"
+            fi
+          done
+          cat "$STATUS"
+
       - name: Cache PlatformIO toolchains and project deps
         uses: actions/cache@v4
         with:
@@ -115,11 +154,47 @@ jobs:
         working-directory: src
         env:
           FIRMWARE_VERSION: nightly-${{ needs.prepare.outputs.run_date }}-${{ needs.prepare.outputs.upstream_sha7 }}
-        run: bash build.sh build-${{ matrix.role }}-firmwares
+          ROLE: ${{ matrix.role }}
+        run: |
+          set -euo pipefail
+          case "$ROLE" in
+            companion)
+              mapfile -t ENVS < <(bash build.sh list | grep -E "_companion_radio_(usb|ble)$" | sort)
+              ;;
+            repeater)
+              mapfile -t ENVS < <(bash build.sh list | grep -E "_repeater$" | sort)
+              ;;
+            room-server)
+              mapfile -t ENVS < <(bash build.sh list | grep -E "_room_server$" | sort)
+              ;;
+            *)
+              echo "Unknown role: $ROLE" >&2; exit 1 ;;
+          esac
+          mkdir -p out
+          TOTAL=${#ENVS[@]}
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "No envs matched for role=$ROLE" >&2; exit 1
+          fi
+          echo "Will build $TOTAL envs for role=$ROLE"
+          for i in "${!ENVS[@]}"; do
+            IDX=$((i+1))
+            ENV="${ENVS[$i]}"
+            echo "::group::[$IDX/$TOTAL] $ENV"
+            bash build.sh build-firmware "$ENV"
+            echo "::endgroup::"
+          done
+          echo "Built $TOTAL firmwares; out/ contains $(ls out | wc -l) files"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firmwares-${{ matrix.role }}
           path: src/out/*
+          if-no-files-found: error
+
+      - name: Upload PR status
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-status-${{ matrix.role }}
+          path: pr-status/${{ matrix.role }}.json
           if-no-files-found: error

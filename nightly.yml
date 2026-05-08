@@ -2,6 +2,11 @@ upstream:
   repo: meshcore-dev/MeshCore
   branch: dev
 
-extra_prs: []
+extra_prs:
+  - 1338
+  - 1810
+  - 1727
+  - 1954
+  - 1687
 
 retention: 10
