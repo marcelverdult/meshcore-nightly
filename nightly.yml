@@ -1,0 +1,7 @@
+upstream:
+  repo: meshcore-dev/MeshCore
+  branch: dev
+
+extra_prs: []
+
+retention: 10
