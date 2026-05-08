@@ -1,0 +1,71 @@
+name: nightly
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      roles:
+        description: 'Comma-separated roles to build (companion,repeater,room-server)'
+        default: 'companion,repeater,room-server'
+        type: string
+      dry_run:
+        description: 'Skip release creation, prune, and README update'
+        default: false
+        type: boolean
+      branch_override:
+        description: 'Upstream branch to build (overrides nightly.yml)'
+        default: ''
+        type: string
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_repo: ${{ steps.cfg.outputs.upstream_repo }}
+      upstream_branch: ${{ steps.cfg.outputs.upstream_branch }}
+      upstream_sha: ${{ steps.cfg.outputs.upstream_sha }}
+      upstream_sha7: ${{ steps.cfg.outputs.upstream_sha7 }}
+      pr_list: ${{ steps.cfg.outputs.pr_list }}
+      retention: ${{ steps.cfg.outputs.retention }}
+      roles: ${{ steps.cfg.outputs.roles }}
+      run_date: ${{ steps.cfg.outputs.run_date }}
+      run_ts: ${{ steps.cfg.outputs.run_ts }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse config
+        id: cfg
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ROLES: ${{ inputs.roles }}
+          INPUT_BRANCH: ${{ inputs.branch_override }}
+        run: |
+          set -euo pipefail
+          REPO=$(yq -r '.upstream.repo // "meshcore-dev/MeshCore"' nightly.yml)
+          BRANCH_CFG=$(yq -r '.upstream.branch // "dev"' nightly.yml)
+          BRANCH="${INPUT_BRANCH:-}"
+          [ -z "$BRANCH" ] && BRANCH="$BRANCH_CFG"
+          PRS=$(yq -o=json -I=0 '.extra_prs // []' nightly.yml)
+          RET=$(yq -r '.retention // 10' nightly.yml)
+          ROLES_INPUT="${INPUT_ROLES:-companion,repeater,room-server}"
+          ROLES_JSON=$(echo "$ROLES_INPUT" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+          SHA=$(gh api "repos/${REPO}/commits/${BRANCH}" --jq '.sha')
+          SHA7="${SHA:0:7}"
+          DATE=$(date -u +%Y%m%d)
+          TS=$(date -u +"%Y-%m-%d %H:%M")
+          {
+            echo "upstream_repo=$REPO"
+            echo "upstream_branch=$BRANCH"
+            echo "upstream_sha=$SHA"
+            echo "upstream_sha7=$SHA7"
+            echo "pr_list=$PRS"
+            echo "retention=$RET"
+            echo "roles=$ROLES_JSON"
+            echo "run_date=$DATE"
+            echo "run_ts=$TS"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved: repo=$REPO branch=$BRANCH sha=$SHA roles=$ROLES_JSON prs=$PRS retention=$RET"
