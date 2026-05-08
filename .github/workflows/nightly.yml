@@ -185,6 +185,38 @@ jobs:
           done
           echo "Built $TOTAL firmwares; out/ contains $(ls out | wc -l) files"
 
+      - name: Build release body
+        id: body
+        if: ${{ inputs.dry_run != true }}
+        env:
+          UPSTREAM: ${{ needs.prepare.outputs.upstream_repo }}
+          BRANCH: ${{ needs.prepare.outputs.upstream_branch }}
+          SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          TS: ${{ needs.prepare.outputs.run_ts }}
+          ROLE: ${{ matrix.role }}
+        run: |
+          set -euo pipefail
+          STATUS="pr-status/${ROLE}.json"
+          {
+            echo "Upstream: ${UPSTREAM}@${SHA} (${BRANCH})"
+            echo "Built: ${TS} UTC"
+            echo
+            MERGED=$(jq -r '[.[] | select(.status=="merged")] | length' "$STATUS")
+            if [ "$MERGED" -gt 0 ]; then
+              echo "Merged PRs:"
+              jq -r '.[] | select(.status=="merged") | "- #\(.number) \(.title)"' "$STATUS"
+              echo
+            fi
+            SKIPPED=$(jq -r '[.[] | select(.status!="merged")] | length' "$STATUS")
+            if [ "$SKIPPED" -gt 0 ]; then
+              echo "Skipped PRs:"
+              jq -r '.[] | select(.status!="merged") | "- #\(.number) \(.title) — \(.status | sub("_"; " "))"' "$STATUS"
+              echo
+            fi
+            echo "Firmware artifacts attached below."
+          } > release-body.md
+          cat release-body.md
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -198,3 +230,35 @@ jobs:
           name: pr-status-${{ matrix.role }}
           path: pr-status/${{ matrix.role }}.json
           if-no-files-found: error
+
+      - name: Create release
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ROLE: ${{ matrix.role }}
+          DATE: ${{ needs.prepare.outputs.run_date }}
+          SHA7: ${{ needs.prepare.outputs.upstream_sha7 }}
+        run: |
+          set -euo pipefail
+          TAG="nightly-${ROLE}-${DATE}"
+          NAME="Nightly ${ROLE} ${DATE} (${SHA7})"
+
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            echo "Existing release for $TAG found; deleting before recreate."
+            gh release delete "$TAG" -R "$REPO" --cleanup-tag --yes
+          fi
+
+          shopt -s nullglob
+          ARTIFACTS=(src/out/*)
+          if [ ${#ARTIFACTS[@]} -eq 0 ]; then
+            echo "No firmware artifacts produced under src/out/" >&2
+            exit 1
+          fi
+
+          gh release create "$TAG" "${ARTIFACTS[@]}" \
+            -R "$REPO" \
+            --title "$NAME" \
+            --notes-file release-body.md \
+            --target main \
+            --prerelease
