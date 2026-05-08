@@ -69,3 +69,46 @@ jobs:
             echo "run_ts=$TS"
           } >> "$GITHUB_OUTPUT"
           echo "Resolved: repo=$REPO branch=$BRANCH sha=$SHA roles=$ROLES_JSON prs=$PRS retention=$RET"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJson(needs.prepare.outputs.roles) }}
+    steps:
+      - name: Checkout config
+        uses: actions/checkout@v4
+        with:
+          path: config
+
+      - name: Checkout upstream
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.upstream_repo }}
+          ref: ${{ needs.prepare.outputs.upstream_branch }}
+          path: src
+          fetch-depth: 0
+
+      - name: Configure git in upstream checkout
+        working-directory: src
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "nightly-builder"
+
+      - name: Setup build environment
+        uses: ./src/.github/actions/setup-build-environment
+
+      - name: Build firmwares
+        working-directory: src
+        env:
+          FIRMWARE_VERSION: nightly-${{ needs.prepare.outputs.run_date }}-${{ needs.prepare.outputs.upstream_sha7 }}
+        run: bash build.sh build-${{ matrix.role }}-firmwares
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmwares-${{ matrix.role }}
+          path: src/out/*
+          if-no-files-found: error
