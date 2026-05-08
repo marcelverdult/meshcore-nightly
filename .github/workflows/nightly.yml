@@ -35,7 +35,7 @@ jobs:
       run_date: ${{ steps.cfg.outputs.run_date }}
       run_ts: ${{ steps.cfg.outputs.run_ts }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Parse config
         id: cfg
@@ -79,12 +79,12 @@ jobs:
         role: ${{ fromJson(needs.prepare.outputs.roles) }}
     steps:
       - name: Checkout config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: config
 
       - name: Checkout upstream
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ needs.prepare.outputs.upstream_repo }}
           ref: ${{ needs.prepare.outputs.upstream_branch }}
@@ -96,6 +96,17 @@ jobs:
         run: |
           git config user.email "actions@github.com"
           git config user.name "nightly-builder"
+
+      - name: Cache PlatformIO toolchains and project deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            src/.pio
+          key: pio-${{ matrix.role }}-${{ hashFiles('src/platformio.ini', 'src/variants/**/platformio.ini', 'src/library.json') }}
+          restore-keys: |
+            pio-${{ matrix.role }}-
 
       - name: Setup build environment
         uses: ./src/.github/actions/setup-build-environment
