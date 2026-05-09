@@ -322,3 +322,126 @@ jobs:
                     echo "Failed to delete $tag (continuing)"
                 done
           done
+
+  update-readme:
+    needs: [prepare, build, prune]
+    if: ${{ always() && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download PR status artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: pr-status-*
+          merge-multiple: false
+
+      - name: Build auto-section
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM: ${{ needs.prepare.outputs.upstream_repo }}
+          BRANCH: ${{ needs.prepare.outputs.upstream_branch }}
+          SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          SHA7: ${{ needs.prepare.outputs.upstream_sha7 }}
+          DATE: ${{ needs.prepare.outputs.run_date }}
+          TS: ${{ needs.prepare.outputs.run_ts }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          status_for() {
+            local role="$1"
+            local tag="nightly-${role}-${DATE}"
+            if gh release view "$tag" -R "$REPO" >/dev/null 2>&1; then
+              echo "[ok](https://github.com/${REPO}/releases/tag/${tag})"
+            else
+              echo "failed"
+            fi
+          }
+
+          {
+            echo "<!-- BEGIN AUTO -->"
+            echo
+            echo "## Latest build"
+            echo
+            echo "- **Date (UTC):** ${TS}"
+            echo "- **Upstream:** [\`${SHA7}\`](https://github.com/${UPSTREAM}/commit/${SHA}) on [\`${BRANCH}\`](https://github.com/${UPSTREAM}/tree/${BRANCH})"
+            echo "- **Companion:** $(status_for companion)"
+            echo "- **Repeater:** $(status_for repeater)"
+            echo "- **Room server:** $(status_for room-server)"
+            echo
+
+            echo "## Recent builds"
+            echo
+            echo "| Date | Companion | Repeater | Room server |"
+            echo "|------|-----------|----------|-------------|"
+            ALL_TAGS=$(gh release list -R "$REPO" -L 200 --json tagName --jq '.[].tagName')
+            DATES=$(echo "$ALL_TAGS" \
+              | grep -E '^nightly-(companion|repeater|room-server)-[0-9]{8}$' \
+              | sed -E 's/^nightly-(companion|repeater|room-server)-([0-9]{8})$/\2/' \
+              | sort -u | sort -r | head -7)
+            for d in $DATES; do
+              row="| ${d:0:4}-${d:4:2}-${d:6:2} |"
+              for role in companion repeater room-server; do
+                tag="nightly-${role}-${d}"
+                if echo "$ALL_TAGS" | grep -qx "$tag"; then
+                  row="$row [ok](https://github.com/${REPO}/releases/tag/${tag}) |"
+                else
+                  row="$row failed |"
+                fi
+              done
+              echo "$row"
+            done
+            echo
+
+            STATUS_FILE=""
+            for f in artifacts/pr-status-*/*.json; do
+              [ -f "$f" ] && STATUS_FILE="$f" && break
+            done
+            if [ -n "$STATUS_FILE" ] && [ "$(jq 'length' "$STATUS_FILE")" -gt 0 ]; then
+              echo "## Configured PRs"
+              echo
+              jq -r --arg up "$UPSTREAM" '
+                .[] |
+                "- [#\(.number)](https://github.com/\($up)/pull/\(.number)) \(.title) — " +
+                  (if .status == "merged" then "merged"
+                   elif .status == "conflict" then "conflict"
+                   else "fetch fail" end)
+              ' "$STATUS_FILE"
+              echo
+            fi
+
+            echo "<!-- END AUTO -->"
+          } > auto.md
+
+          awk '
+            /<!-- BEGIN AUTO -->/ {
+              while ((getline line < "auto.md") > 0) print line
+              close("auto.md")
+              inblock = 1
+              next
+            }
+            /<!-- END AUTO -->/ && inblock {
+              inblock = 0
+              next
+            }
+            !inblock { print }
+          ' README.md > README.new
+          mv README.new README.md
+          rm -f auto.md
+
+      - name: Commit README if changed
+        run: |
+          set -euo pipefail
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          if git diff --quiet README.md; then
+            echo "README unchanged"
+            exit 0
+          fi
+          git add README.md
+          git commit -m "Update nightly status [skip ci]"
+          git push
