@@ -170,19 +170,39 @@ jobs:
             *)
               echo "Unknown role: $ROLE" >&2; exit 1 ;;
           esac
-          mkdir -p out
           TOTAL=${#ENVS[@]}
           if [ "$TOTAL" -eq 0 ]; then
             echo "No envs matched for role=$ROLE" >&2; exit 1
           fi
+          # build.sh wipes ./out at every invocation, so collect outputs in a sibling dir
+          # and restore them to ./out at the end for the upload + release steps.
+          COLLECT_DIR="$(pwd)/../collected"
+          rm -rf "$COLLECT_DIR"
+          mkdir -p "$COLLECT_DIR"
           echo "Will build $TOTAL envs for role=$ROLE"
           for i in "${!ENVS[@]}"; do
             IDX=$((i+1))
             ENV="${ENVS[$i]}"
             echo "::group::[$IDX/$TOTAL] $ENV"
             bash build.sh build-firmware "$ENV"
+            if [ -d out ]; then
+              shopt -s nullglob dotglob
+              files=(out/*)
+              shopt -u dotglob
+              if [ ${#files[@]} -gt 0 ]; then
+                cp -- "${files[@]}" "$COLLECT_DIR/"
+              fi
+            fi
             echo "::endgroup::"
           done
+          rm -rf out
+          mkdir -p out
+          shopt -s nullglob dotglob
+          collected=("$COLLECT_DIR"/*)
+          shopt -u dotglob
+          if [ ${#collected[@]} -gt 0 ]; then
+            mv -- "${collected[@]}" out/
+          fi
           echo "Built $TOTAL firmwares; out/ contains $(ls out | wc -l) files"
 
       - name: Build release body
