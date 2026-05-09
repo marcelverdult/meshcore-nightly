@@ -294,3 +294,31 @@ jobs:
             --notes-file release-body.md \
             --target main \
             --prerelease
+
+  prune:
+    needs: [prepare, build]
+    if: ${{ always() && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune old nightly releases per role
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RET: ${{ needs.prepare.outputs.retention }}
+        run: |
+          set -euo pipefail
+          for role in companion repeater room-server; do
+            echo "Pruning role=$role keep=$RET"
+            gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName,createdAt,isPrerelease \
+              | jq -r --arg p "nightly-${role}-" --argjson keep "$RET" '
+                  [.[] | select(.tagName | startswith($p))]
+                  | sort_by(.createdAt) | reverse
+                  | .[$keep:]
+                  | .[].tagName
+                ' \
+              | while read -r tag; do
+                  [ -z "$tag" ] && continue
+                  echo "Deleting $tag"
+                  gh release delete "$tag" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes || \
+                    echo "Failed to delete $tag (continuing)"
+                done
+          done
