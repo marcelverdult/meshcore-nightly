@@ -136,16 +136,19 @@ jobs:
           done
           cat "$STATUS"
 
-      - name: Cache PlatformIO toolchains and project deps
+      # Single shared cache across all roles — toolchains in ~/.platformio are identical
+      # for companion/repeater/room-server, so per-role caches just thrash the 10 GB repo
+      # cache budget. src/.pio lib_deps are excluded (fast to recreate from .cache).
+      - name: Cache PlatformIO packages and platforms
         uses: actions/cache@v4
         with:
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
-            src/.pio
-          key: pio-${{ matrix.role }}-${{ hashFiles('src/platformio.ini', 'src/variants/**/platformio.ini', 'src/library.json') }}
+            ~/.platformio/.cache
+          key: pio-${{ hashFiles('src/platformio.ini', 'src/variants/**/platformio.ini', 'src/library.json') }}
           restore-keys: |
-            pio-${{ matrix.role }}-
+            pio-
 
       - name: Setup build environment
         uses: ./src/.github/actions/setup-build-environment
