@@ -1,0 +1,74 @@
+name: pr-check
+
+# Enforce that contributor PRs only modify the `extra_prs` list in nightly.yml.
+# All other paths and all other config keys are locked.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-config-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check changed paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | sort -u)
+          echo "Changed files:"
+          echo "$CHANGED"
+          OTHER=$(echo "$CHANGED" | grep -v '^nightly\.yml$' || true)
+          if [ -n "$OTHER" ]; then
+            echo "::error title=Disallowed file changes::PR may only modify nightly.yml. Other files changed:"
+            echo "$OTHER"
+            exit 1
+          fi
+          if ! echo "$CHANGED" | grep -qx 'nightly.yml'; then
+            echo "::error title=No config change::PR did not change nightly.yml. Nothing to merge."
+            exit 1
+          fi
+
+      - name: Check only extra_prs differs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git show "$BASE_SHA:nightly.yml" > /tmp/base.yml
+          git show "$HEAD_SHA:nightly.yml" > /tmp/head.yml
+          BASE_NORM=$(yq 'del(.extra_prs)' /tmp/base.yml)
+          HEAD_NORM=$(yq 'del(.extra_prs)' /tmp/head.yml)
+          if [ "$BASE_NORM" != "$HEAD_NORM" ]; then
+            echo "::error title=Locked keys changed::Only the extra_prs list may be modified. Diff of locked config:"
+            diff <(echo "$BASE_NORM") <(echo "$HEAD_NORM") || true
+            exit 1
+          fi
+
+      - name: Validate extra_prs shape
+        run: |
+          set -euo pipefail
+          # extra_prs must be a list of positive integers.
+          BAD=$(yq '.extra_prs // [] | map(select((type != "!!int") or . < 1))' nightly.yml)
+          if [ "$BAD" != "[]" ]; then
+            echo "::error title=Invalid extra_prs::Each entry must be a positive integer. Bad entries: $BAD"
+            exit 1
+          fi
+          # No duplicates.
+          DUPES=$(yq '.extra_prs // [] | group_by(.) | map(select(length > 1) | .[0])' nightly.yml)
+          if [ "$DUPES" != "[]" ]; then
+            echo "::error title=Duplicate PR numbers::extra_prs contains duplicates: $DUPES"
+            exit 1
+          fi
+          echo "extra_prs OK"
