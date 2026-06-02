@@ -249,12 +249,12 @@ jobs:
           } > release-body.md
           cat release-body.md
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmwares-${{ matrix.role }}
-          path: src/out/*
-          if-no-files-found: error
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: firmwares-${{ matrix.role }}
+#          path: src/out/*
+#          if-no-files-found: error
 
       - name: Upload PR status
         uses: actions/upload-artifact@v4
