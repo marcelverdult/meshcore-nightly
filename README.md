@@ -27,26 +27,26 @@ These builds track an active development branch. They may be unstable or fail to
 
 ## Latest build
 
-- **Date (UTC):** 2026-06-14 00:35
-- **Upstream:** [`a5cb0c2`](https://github.com/meshcore-dev/MeshCore/commit/a5cb0c25cacc3b3b0e4a17181a59d8eb58b21117) on [`dev`](https://github.com/meshcore-dev/MeshCore/tree/dev)
-- **Companion:** failed
-- **Repeater:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260614)
-- **Room server:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260614)
+- **Date (UTC):** 2026-06-15 00:37
+- **Upstream:** [`29f0a7f`](https://github.com/meshcore-dev/MeshCore/commit/29f0a7fc4f8ed656bf607718d1b8d8a8a858ce76) on [`dev`](https://github.com/meshcore-dev/MeshCore/tree/dev)
+- **Companion:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260615)
+- **Repeater:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260615)
+- **Room server:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260615)
 
 ## Recent builds
 
 | Date | Companion | Repeater | Room server |
 |------|-----------|----------|-------------|
+| 2026-06-15 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260615) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260615) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260615) |
 | 2026-06-14 | failed | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260614) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260614) |
 | 2026-06-13 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260613) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260613) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260613) |
-| 2026-06-12 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260612) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260612) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260612) |
-| 2026-06-10 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260610) | failed | failed |
+| 2026-06-12 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260612) | failed | failed |
 
 ## Configured PRs
 
 - [#2553](https://github.com/meshcore-dev/MeshCore/pull/2553) Add exponential flood advert reduction based on hop count — conflict
 - [#1810](https://github.com/meshcore-dev/MeshCore/pull/1810) Allow direct message paths when denyf * is set — merged
-- [#1727](https://github.com/meshcore-dev/MeshCore/pull/1727) Use hardware channel activity detection for checking interference — conflict
+- [#1727](https://github.com/meshcore-dev/MeshCore/pull/1727) Use hardware channel activity detection for checking interference — merged
 - [#1954](https://github.com/meshcore-dev/MeshCore/pull/1954) Lora longer preamble — merged
 - [#1687](https://github.com/meshcore-dev/MeshCore/pull/1687) Added PowerSaving for all ESP32-based repeaters — merged
 - [#2140](https://github.com/meshcore-dev/MeshCore/pull/2140) Add CLI control to LoRa's fem LNA. — merged
