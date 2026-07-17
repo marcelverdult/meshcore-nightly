@@ -27,19 +27,19 @@ These builds track an active development branch. They may be unstable or fail to
 
 ## Latest build
 
-- **Date (UTC):** 2026-07-16 01:47
+- **Date (UTC):** 2026-07-17 01:51
 - **Upstream:** [`b55d69e`](https://github.com/meshcore-dev/MeshCore/commit/b55d69e57a018c9d48e6cfaa900cfd8ac8df75db) on [`dev`](https://github.com/meshcore-dev/MeshCore/tree/dev)
-- **Companion:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260716)
-- **Repeater:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260716)
-- **Room server:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260716)
+- **Companion:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260717)
+- **Repeater:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260717)
+- **Room server:** [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260717)
 
 ## Recent builds
 
 | Date | Companion | Repeater | Room server |
 |------|-----------|----------|-------------|
+| 2026-07-17 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260717) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260717) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260717) |
 | 2026-07-16 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260716) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260716) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260716) |
 | 2026-07-15 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260715) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260715) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260715) |
-| 2026-07-14 | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-companion-20260714) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-repeater-20260714) | [ok](https://github.com/marcelverdult/meshcore-nightly/releases/tag/nightly-room-server-20260714) |
 
 ## Configured PRs
 
