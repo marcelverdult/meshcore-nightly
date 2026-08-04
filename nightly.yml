@@ -3,11 +3,5 @@ upstream:
   branch: dev
 
 extra_prs:
-  - 2553
-  - 1810
-  - 1727
-  - 1954
-  - 1687
-  - 2140
 
 retention: 3
