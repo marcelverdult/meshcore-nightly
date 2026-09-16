@@ -27,8 +27,8 @@ These builds track an active development branch. They may be unstable or fail to
 
 ## Latest build
 
-- **Date (UTC):** 2026-09-15 02:34
-- **Upstream:** [`e6dd8f0`](https://github.com/meshcore-dev/MeshCore/commit/e6dd8f08ddd9f7284ef525a0d7150d73d1ad9583) on [`dev`](https://github.com/meshcore-dev/MeshCore/tree/dev)
+- **Date (UTC):** 2026-09-16 02:28
+- **Upstream:** [`0ec5ed5`](https://github.com/meshcore-dev/MeshCore/commit/0ec5ed5fe76980448e1c6d61a34c2d6341ef323a) on [`dev`](https://github.com/meshcore-dev/MeshCore/tree/dev)
 - **Companion:** failed
 - **Repeater:** failed
 - **Room server:** failed
