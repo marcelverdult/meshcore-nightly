@@ -32,6 +32,7 @@ jobs:
       pr_list: ${{ steps.cfg.outputs.pr_list }}
       retention: ${{ steps.cfg.outputs.retention }}
       roles: ${{ steps.cfg.outputs.roles }}
+      matrix: ${{ steps.cfg.outputs.matrix }}
       run_date: ${{ steps.cfg.outputs.run_date }}
       run_ts: ${{ steps.cfg.outputs.run_ts }}
     steps:
@@ -53,6 +54,10 @@ jobs:
           RET=$(yq -r '.retention // 10' nightly.yml)
           ROLES_INPUT="${INPUT_ROLES:-companion,repeater,room-server}"
           ROLES_JSON=$(echo "$ROLES_INPUT" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+          # Each role is split into shards that build in parallel (public repo: max 20 concurrent jobs).
+          MATRIX=$(echo "$ROLES_JSON" | jq -c '{include: [.[] as $r
+            | ({"companion":10,"repeater":5,"room-server":5}[$r] // 4) as $n
+            | range(0; $n) | {role: $r, shard: ., shards: $n}]}')
           SHA=$(gh api "repos/${REPO}/commits/${BRANCH}" --jq '.sha')
           SHA7="${SHA:0:7}"
           DATE=$(date -u +%Y%m%d)
@@ -65,18 +70,19 @@ jobs:
             echo "pr_list=$PRS"
             echo "retention=$RET"
             echo "roles=$ROLES_JSON"
+            echo "matrix=$MATRIX"
             echo "run_date=$DATE"
             echo "run_ts=$TS"
           } >> "$GITHUB_OUTPUT"
           echo "Resolved: repo=$REPO branch=$BRANCH sha=$SHA roles=$ROLES_JSON prs=$PRS retention=$RET"
 
   build:
+    name: build (${{ matrix.role }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        role: ${{ fromJson(needs.prepare.outputs.roles) }}
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout config
         uses: actions/checkout@v5
@@ -149,16 +155,6 @@ jobs:
           restore-keys: |
             pio-pkg-
 
-      # src/.pio/libdeps holds per-env library copies (PIO duplicates the same lib
-      # source per env subdir). Per-role key keeps each role's full libdeps set.
-      - name: Cache project libdeps for role
-        uses: actions/cache@v4
-        with:
-          path: src/.pio/libdeps
-          key: pio-libs-${{ matrix.role }}-${{ hashFiles('src/platformio.ini', 'src/variants/**/platformio.ini', 'src/library.json') }}
-          restore-keys: |
-            pio-libs-${{ matrix.role }}-
-
       - name: Setup build environment
         uses: ./src/.github/actions/setup-build-environment
 
@@ -167,42 +163,48 @@ jobs:
         env:
           FIRMWARE_VERSION: nightly-${{ needs.prepare.outputs.run_date }}-${{ needs.prepare.outputs.upstream_sha7 }}
           ROLE: ${{ matrix.role }}
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.shards }}
         run: |
           set -euo pipefail
           case "$ROLE" in
             companion)
-              mapfile -t ENVS < <(bash build.sh list | grep -E "_companion_radio_(usb|ble)$" | sort)
+              mapfile -t ALL < <(bash build.sh list | grep -E "_companion_radio_(usb|ble)$" | sort)
               ;;
             repeater)
-              mapfile -t ENVS < <(bash build.sh list | grep -E "_repeater$" | sort)
+              mapfile -t ALL < <(bash build.sh list | grep -E "_repeater$" | sort)
               ;;
             room-server)
-              mapfile -t ENVS < <(bash build.sh list | grep -E "_room_server$" | sort)
+              mapfile -t ALL < <(bash build.sh list | grep -E "_room_server$" | sort)
               ;;
             *)
               echo "Unknown role: $ROLE" >&2; exit 1 ;;
           esac
-          TOTAL=${#ENVS[@]}
-          if [ "$TOTAL" -eq 0 ]; then
+          if [ ${#ALL[@]} -eq 0 ]; then
             echo "No envs matched for role=$ROLE" >&2; exit 1
           fi
-          # build.sh wipes ./out at every invocation, so collect outputs in a sibling dir
-          # and restore them to ./out at the end for the upload + release steps.
-          COLLECT_DIR="$(pwd)/../collected"
-          rm -rf "$COLLECT_DIR"
-          mkdir -p "$COLLECT_DIR"
+          # Round-robin split so similar boards (alphabetical families) spread across shards.
+          ENVS=()
+          for i in "${!ALL[@]}"; do
+            [ $((i % SHARDS)) -eq "$SHARD" ] && ENVS+=("${ALL[$i]}")
+          done
+          TOTAL=${#ENVS[@]}
+          # build.sh wipes ./out at every invocation, so collect outputs in a sibling dir.
           # One broken upstream env must not sink the whole role: record it and keep going.
-          FAILED_FILE="$(pwd)/../failed-envs-${ROLE}.txt"
-          : > "$FAILED_FILE"
-          FAILED=()
-          echo "Will build $TOTAL envs for role=$ROLE"
+          SHARD_DIR="$(pwd)/../shard-out"
+          rm -rf "$SHARD_DIR"
+          mkdir -p "$SHARD_DIR/firmware"
+          printf '%s\n' "${ENVS[@]}" > "$SHARD_DIR/envs.txt"
+          : > "$SHARD_DIR/failed.txt"
+          FAILED=0
+          echo "Shard $SHARD/$SHARDS: building $TOTAL of ${#ALL[@]} envs for role=$ROLE"
           for i in "${!ENVS[@]}"; do
             IDX=$((i+1))
             ENV="${ENVS[$i]}"
             echo "::group::[$IDX/$TOTAL] $ENV"
             if ! bash build.sh build-firmware "$ENV"; then
-              FAILED+=("$ENV")
-              echo "$ENV" >> "$FAILED_FILE"
+              FAILED=$((FAILED+1))
+              echo "$ENV" >> "$SHARD_DIR/failed.txt"
               echo "::endgroup::"
               echo "::warning title=Build failed::$ENV failed to build (skipped)"
               continue
@@ -212,33 +214,91 @@ jobs:
               files=(out/*)
               shopt -u dotglob
               if [ ${#files[@]} -gt 0 ]; then
-                cp -- "${files[@]}" "$COLLECT_DIR/"
+                cp -- "${files[@]}" "$SHARD_DIR/firmware/"
               fi
             fi
             echo "::endgroup::"
           done
-          rm -rf out
-          mkdir -p out
-          shopt -s nullglob dotglob
-          collected=("$COLLECT_DIR"/*)
-          shopt -u dotglob
-          if [ ${#collected[@]} -gt 0 ]; then
-            mv -- "${collected[@]}" out/
-          fi
-          OK=$((TOTAL - ${#FAILED[@]}))
-          echo "Built $OK/$TOTAL firmwares; out/ contains $(ls out | wc -l) files"
-          if [ ${#FAILED[@]} -gt 0 ]; then
-            {
-              echo "### ${ROLE}: ${#FAILED[@]} of $TOTAL envs failed"
-              printf -- '- `%s`\n' "${FAILED[@]}"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ "$OK" -eq 0 ]; then
-            echo "All $TOTAL envs failed for role=$ROLE" >&2; exit 1
+          echo "Built $((TOTAL - FAILED))/$TOTAL firmwares; $(ls "$SHARD_DIR/firmware" | wc -l) files"
+
+      - name: Upload shard firmwares
+        uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.role }}-${{ matrix.shard }}
+          path: shard-out/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload PR status
+        if: ${{ matrix.shard == 0 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-status-${{ matrix.role }}
+          path: pr-status/${{ matrix.role }}.json
+          if-no-files-found: error
+
+  # Collect all shards of a role into one release.
+  release:
+    needs: [prepare, build]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJson(needs.prepare.outputs.roles) }}
+    steps:
+      - name: Download shard firmwares
+        uses: actions/download-artifact@v4
+        with:
+          path: shards
+          pattern: fw-${{ matrix.role }}-*
+
+      - name: Download PR status
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-status-${{ matrix.role }}
+          path: pr-status
+
+      - name: Merge shards
+        env:
+          ROLE: ${{ matrix.role }}
+          MATRIX: ${{ needs.prepare.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          EXPECTED=$(echo "$MATRIX" | jq --arg r "$ROLE" '[.include[] | select(.role == $r)] | length')
+          mkdir -p out shards
+          : > failed.txt
+          : > missing-shards.txt
+          TOTAL=0
+          for k in $(seq 0 $((EXPECTED - 1))); do
+            d="shards/fw-${ROLE}-${k}"
+            if [ ! -f "$d/envs.txt" ]; then
+              echo "$k" >> missing-shards.txt
+              continue
+            fi
+            TOTAL=$((TOTAL + $(grep -c . "$d/envs.txt" || true)))
+            cat "$d/failed.txt" >> failed.txt
+            shopt -s nullglob
+            files=("$d"/firmware/*)
+            [ ${#files[@]} -gt 0 ] && mv -- "${files[@]}" out/
+          done
+          sort -o failed.txt failed.txt
+          NFAILED=$(grep -c . failed.txt || true)
+          NMISSING=$(grep -c . missing-shards.txt || true)
+          echo "role=$ROLE: $((TOTAL - NFAILED))/$TOTAL envs built, $NMISSING of $EXPECTED shards missing, $(ls out | wc -l) files"
+          {
+            echo "### ${ROLE}: $((TOTAL - NFAILED))/$TOTAL envs built"
+            [ "$NFAILED" -gt 0 ] && sed 's/^/- failed: `/; s/$/`/' failed.txt
+            [ "$NMISSING" -gt 0 ] && echo "- **$NMISSING of $EXPECTED shards did not finish** (their boards are missing)"
+            true
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(ls out | wc -l)" -eq 0 ]; then
+            echo "No firmware produced for role=$ROLE" >&2; exit 1
           fi
 
       - name: Build release body
-        id: body
         if: ${{ inputs.dry_run != true }}
         env:
           UPSTREAM: ${{ needs.prepare.outputs.upstream_repo }}
@@ -249,6 +309,8 @@ jobs:
         run: |
           set -euo pipefail
           STATUS="pr-status/${ROLE}.json"
+          mkdir -p pr-status
+          [ -f "$STATUS" ] || echo '[]' > "$STATUS"
           {
             echo "Upstream: ${UPSTREAM}@${SHA} (${BRANCH})"
             echo "Built: ${TS} UTC"
@@ -265,29 +327,18 @@ jobs:
               jq -r '.[] | select(.status!="merged") | "- #\(.number) \(.title) — \(.status | sub("_"; " "))"' "$STATUS"
               echo
             fi
-            FAILED_FILE="failed-envs-${ROLE}.txt"
-            if [ -s "$FAILED_FILE" ]; then
+            if [ -s failed.txt ]; then
               echo "Failed to build (not attached):"
-              sed 's/^/- /' "$FAILED_FILE"
+              sed 's/^/- /' failed.txt
+              echo
+            fi
+            if [ -s missing-shards.txt ]; then
+              echo "Warning: $(grep -c . missing-shards.txt) build shard(s) did not finish; some boards are missing."
               echo
             fi
             echo "Firmware artifacts attached below."
           } > release-body.md
           cat release-body.md
-
-#      - name: Upload artifacts
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: firmwares-${{ matrix.role }}
-#          path: src/out/*
-#          if-no-files-found: error
-
-      - name: Upload PR status
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-status-${{ matrix.role }}
-          path: pr-status/${{ matrix.role }}.json
-          if-no-files-found: error
 
       - name: Create release
         if: ${{ inputs.dry_run != true }}
@@ -308,21 +359,15 @@ jobs:
           fi
 
           shopt -s nullglob
-          ARTIFACTS=(src/out/*)
-          if [ ${#ARTIFACTS[@]} -eq 0 ]; then
-            echo "No firmware artifacts produced under src/out/" >&2
-            exit 1
-          fi
-
+          ARTIFACTS=(out/*)
           gh release create "$TAG" "${ARTIFACTS[@]}" \
             -R "$REPO" \
             --title "$NAME" \
             --notes-file release-body.md \
             --target main \
             --prerelease
-
   prune:
-    needs: [prepare, build]
+    needs: [prepare, release]
     if: ${{ always() && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     steps:
@@ -350,7 +395,7 @@ jobs:
           done
 
   update-readme:
-    needs: [prepare, build, prune]
+    needs: [prepare, release, prune]
     if: ${{ always() && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     steps:
@@ -474,7 +519,7 @@ jobs:
 
   # Keep the Actions tab clean: delete every finished run (all workflows) except this one.
   cleanup-runs:
-    needs: [prepare, build, prune, update-readme]
+    needs: [prepare, build, release, prune, update-readme]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
