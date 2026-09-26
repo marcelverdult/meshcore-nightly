@@ -471,3 +471,30 @@ jobs:
           git add README.md
           git commit -m "Update nightly status [skip ci]"
           git push
+
+  # Keep the Actions tab clean: delete every finished run (all workflows) except this one.
+  cleanup-runs:
+    needs: [prepare, build, prune, update-readme]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          IDS=$(gh api --paginate "repos/${REPO}/actions/runs?status=completed&per_page=100" \
+                  --jq ".workflow_runs[] | select(.id != ${CURRENT}) | .id")
+          COUNT=0
+          for id in $IDS; do
+            if gh api -X DELETE "repos/${REPO}/actions/runs/${id}" >/dev/null; then
+              COUNT=$((COUNT+1))
+            else
+              echo "Failed to delete run $id (continuing)"
+            fi
+          done
+          echo "Deleted $COUNT old workflow runs"
