@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
     inputs:
       roles:
-        description: 'Comma-separated roles to build (companion,repeater,room-server)'
-        default: 'companion,repeater,room-server'
+        description: 'Comma-separated roles to build (companion,repeater,room-server,sensor)'
+        default: 'companion,repeater,room-server,sensor'
         type: string
       dry_run:
         description: 'Skip release creation, prune, and README update'
@@ -52,11 +52,11 @@ jobs:
           [ -z "$BRANCH" ] && BRANCH="$BRANCH_CFG"
           PRS=$(yq -o=json -I=0 '.extra_prs // []' nightly.yml)
           RET=$(yq -r '.retention // 10' nightly.yml)
-          ROLES_INPUT="${INPUT_ROLES:-companion,repeater,room-server}"
+          ROLES_INPUT="${INPUT_ROLES:-companion,repeater,room-server,sensor}"
           ROLES_JSON=$(echo "$ROLES_INPUT" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
           # Each role is split into shards that build in parallel (public repo: max 20 concurrent jobs).
           MATRIX=$(echo "$ROLES_JSON" | jq -c '{include: [.[] as $r
-            | ({"companion":10,"repeater":5,"room-server":5}[$r] // 4) as $n
+            | ({"companion":10,"repeater":5,"room-server":5,"sensor":2}[$r] // 4) as $n
             | range(0; $n) | {role: $r, shard: ., shards: $n}]}')
           SHA=$(gh api "repos/${REPO}/commits/${BRANCH}" --jq '.sha')
           SHA7="${SHA:0:7}"
@@ -176,6 +176,9 @@ jobs:
               ;;
             room-server)
               mapfile -t ALL < <(bash build.sh list | grep -E "_room_server$" | sort)
+              ;;
+            sensor)
+              mapfile -t ALL < <(bash build.sh list | grep -E "_sensor$" | sort)
               ;;
             *)
               echo "Unknown role: $ROLE" >&2; exit 1 ;;
@@ -377,7 +380,7 @@ jobs:
           RET: ${{ needs.prepare.outputs.retention }}
         run: |
           set -euo pipefail
-          for role in companion repeater room-server; do
+          for role in companion repeater room-server sensor; do
             echo "Pruning role=$role keep=$RET"
             gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName,createdAt,isPrerelease \
               | jq -r --arg p "nightly-${role}-" --argjson keep "$RET" '
@@ -443,20 +446,21 @@ jobs:
             echo "- **Companion:** $(status_for companion)"
             echo "- **Repeater:** $(status_for repeater)"
             echo "- **Room server:** $(status_for room-server)"
+            echo "- **Sensor:** $(status_for sensor)"
             echo
 
             echo "## Recent builds"
             echo
-            echo "| Date | Companion | Repeater | Room server |"
-            echo "|------|-----------|----------|-------------|"
+            echo "| Date | Companion | Repeater | Room server | Sensor |"
+            echo "|------|-----------|----------|-------------|--------|"
             ALL_TAGS=$(gh release list -R "$REPO" -L 200 --json tagName --jq '.[].tagName')
             DATES=$(echo "$ALL_TAGS" \
-              | grep -E '^nightly-(companion|repeater|room-server)-[0-9]{8}$' \
-              | sed -E 's/^nightly-(companion|repeater|room-server)-([0-9]{8})$/\2/' \
+              | grep -E '^nightly-(companion|repeater|room-server|sensor)-[0-9]{8}$' \
+              | sed -E 's/^nightly-(companion|repeater|room-server|sensor)-([0-9]{8})$/\2/' \
               | sort -u | sort -r | head -7)
             for d in $DATES; do
               row="| ${d:0:4}-${d:4:2}-${d:6:2} |"
-              for role in companion repeater room-server; do
+              for role in companion repeater room-server sensor; do
                 tag="nightly-${role}-${d}"
                 if echo "$ALL_TAGS" | grep -qx "$tag"; then
                   row="$row [ok](https://github.com/${REPO}/releases/tag/${tag}) |"
